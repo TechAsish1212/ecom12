@@ -49,3 +49,44 @@ export const register = catchAsyncError(async (req, res, next) => {
 })
 
 
+export const login = catchAsyncError(async (req, res, next) => {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+        return next(new ErrorHandler("Email or password is required", 400));
+    }
+
+    const existedUser = await database.query(
+        `SELECT * FROM users WHERE email = $1`, [email]
+    );
+
+    if (existedUser.rows.length === 0) {
+        return next(new ErrorHandler("user email is Invalid", 401));
+    }
+
+    const isPasswordMatch = await bcrypt.compare(password, existedUser.rows[0].password);
+    if (!isPasswordMatch) {
+        return next(new ErrorHandler("password is Invalid", 401));
+    }
+
+    sendToken(existedUser.rows[0], 200, "User Login successfully", res);
+})
+
+export const getUser = catchAsyncError(async (req, res, next) => {
+    const { user } = req; //or const user = req.user;
+    res.status(200).json({
+        success: true,
+        user,
+    })
+})
+
+export const logout = catchAsyncError(async (req, res, next) => {
+    res.status(200).cookie("token", "", {
+        expires: new Date(Date.now()),
+        httpOnly: true,
+    }).
+        json({
+            success: true,
+            message: "User logout successfully"
+        })
+})
