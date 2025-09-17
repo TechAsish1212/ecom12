@@ -3,9 +3,13 @@ import { catchAsyncError } from "../middlewares/catchAsyncError.js";
 import database from "../database/db.js";
 import bcrypt from 'bcrypt';
 import { sendToken } from "../utils/jwtToken.js";
+import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
+import { generateEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
+import { sendEmail } from "../utils/sendEmail.js";
+import crypto from "crypto";
 
 const emailReg = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$/;
+const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
 
 
 
@@ -25,7 +29,7 @@ export const register = catchAsyncError(async (req, res, next) => {
 
     // password format validation
     if (!passwordReg.test(password)) {
-        return next(new ErrorHandler("Password must be at least 8 characters long and include uppercase, lowercase, number, and special character", 400));
+        return next(new ErrorHandler("Password must be between 8 and 20 characters long and include uppercase, lowercase, number, and special character", 400));
     }
 
     //  check if user already exists or not (email)
@@ -90,3 +94,85 @@ export const logout = catchAsyncError(async (req, res, next) => {
             message: "User logout successfully"
         })
 })
+
+export const forgetPassword = catchAsyncError(async (req, res, next) => {
+    const { email } = req.body;
+    const { frontendUrl } = req.query;
+
+    let userResult = await database.query(
+        `SELECT * FROM  users WHERE email =$1`, [email]
+    )
+    if (userResult.rows.length === 0) {
+        return next(new ErrorHandler("User not found with this email"));
+    }
+
+    const user = userResult.rows[0];
+    const { resetToken, hashedToken, resetPasswordExpires } = generateResetPasswordToken();
+
+    await database.query(`UPDATE users SET reset_password_token =$1, reset_password_expire =to_timestamp($2) WHERE email= $3`, [hashedToken, resetPasswordExpires / 1000, email]);
+
+    const resetPasswordUrl = `${frontendUrl}/password/reset/${resetToken}`;
+    const message = generateEmailTemplate(resetPasswordUrl);
+
+    try {
+        await sendEmail({
+            email: user.email,
+            subject: "Ecommerce Password Recovery",
+            message,
+        })
+        res.status(200).json({ success: true, message: `Email sent to ${user.email} successfully` });
+    } catch (error) {
+        await database.query(
+            `UPDATE users SET reset_password_token =NULL,reset_password_expire=NULL WHERE email =$1`, [email]
+        )
+        return next(new ErrorHandler("Email could not be sent", 500));
+    }
+})
+
+export const resetPassword = catchAsyncError(async (req, res, next) => {
+    const { token } = req.params;
+
+    //  Hash the token and check user
+    const resetPasswordToken = crypto.createHash("sha256").update(token).digest("hex");
+    const userResult = await database.query(
+        `SELECT * FROM users WHERE reset_password_token=$1 AND reset_password_expire > NOW()`,
+        [resetPasswordToken]
+    );
+
+    if (userResult.rows.length === 0) {
+        return next(new ErrorHandler("Expired or invalid reset token", 400));
+    }
+
+    const { password, confirmPassword } = req.body;
+
+    // Validate password
+    if (password !== confirmPassword) {
+        return next(new ErrorHandler("Passwords do not match", 400));
+    }
+
+    // Strong password check (same as register)
+    const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+    if (!passwordReg.test(password)) {
+        return next(
+            new ErrorHandler(
+                "Password must be 8–20 characters long and include uppercase, lowercase, number, and special character",
+                400
+            )
+        );
+    }
+
+    //  Hash new password
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    //  Update user
+    const updatedUser = await database.query(
+        `UPDATE users 
+         SET password=$1, reset_password_token=NULL, reset_password_expire=NULL 
+         WHERE id=$2 
+         RETURNING *`,
+        [hashedPassword, userResult.rows[0].id]
+    );
+
+    // 5. Send response with new token
+    sendToken(updatedUser.rows[0], 200, "Password reset successfully", res);
+});
