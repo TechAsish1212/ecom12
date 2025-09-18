@@ -7,6 +7,9 @@ import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.
 import { generateEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
+import {v2 as cloudinary} from 'cloudinary'
+import { url } from "inspector";
+import e from "express";
 
 const emailReg = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
@@ -176,3 +179,96 @@ export const resetPassword = catchAsyncError(async (req, res, next) => {
     // 5. Send response with new token
     sendToken(updatedUser.rows[0], 200, "Password reset successfully", res);
 });
+
+export const updatePassword = catchAsyncError(async (req, res, next) => {
+    // taking from the user
+    const { currentPassword, newPassword, confirmNewPassword } = req.body;
+
+    // Check if all fields are provided
+    if (!currentPassword || !newPassword || !confirmNewPassword) {
+        return next(new ErrorHandler("All fields are required", 400));
+    }
+
+    // Compare current password with the hashed password in the database
+    const isPasswordMatch = await bcrypt.compare(currentPassword, req.user.password);
+    if (!isPasswordMatch) {
+        return next(new ErrorHandler("Current password is Incorrect", 401));
+    }
+
+    // Check if new password matches confirmation
+    if (newPassword !== confirmNewPassword) {
+        return next(new ErrorHandler("Password are not matching", 400));
+    }
+
+    // Validate password strength
+    const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
+    if (!passwordReg.test(newPassword)) {
+        return next(
+            new ErrorHandler(
+                "Password must be 8–20 characters long and include uppercase, lowercase, number, and special character",
+                400
+            )
+        );
+    }
+
+    //  Hash the new password
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Update the password in the database
+    await database.query(
+        "UPDATE users SET password =$1 WHERE id =$2", [hashedPassword, req.user.id]
+    )
+
+    // Send success response
+    res.status(200).json({
+        success: true,
+        message: "Password updated successfully"
+    })
+})
+
+export const updateProfile = catchAsyncError(async(req,res,next)=>{
+    const {name,email}=req.body;
+
+    if(!name || !email){
+        return next(new ErrorHandler("Provides all fields",400));
+    }
+
+    if(name.trim().length===0 || email.trim().length===0){
+        return next(new ErrorHandler("Name and Email can not be empty",400));
+    }
+
+    let avatarData={};
+    if(req.files && req.files.avatar){
+        const {avatar}=req.files;
+        if(req.user?.avatar?.public_id){
+            await cloudinary.uploader.destroy(req.user.avatar.public_id);
+        }
+
+        const newProfileImage=await cloudinary.uploader.upload(avatar.tempFilePath,{
+            folder:"Ecom-Avatar",
+            width:150,
+            crop:"scale",   
+        })
+        avatarData={
+            public_id:newProfileImage.public_id,
+            url:newProfileImage.secure_url
+        }
+    }
+
+    let user;
+    if(Object.keys(avatarData).length===0){
+        user=await database.query(
+            'UPDATE users SET name =$1 ,email =$2 WHERE id =$3 RETURNING *',[name,email,req.user.id]
+        )
+    }
+    else{
+        user=await database.query(
+            'UPDATE users SET name =$1 ,email =$2,avatar=$3 WHERE id =$4 RETURNING *',[name,email,avatarData,req.user.id]
+        )
+    }
+    res.status(200).json({
+        success:true,
+        message:"Profile updated successfully",
+        user:user.rows[0]
+    })
+})
