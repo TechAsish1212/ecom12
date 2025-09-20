@@ -22,3 +22,23 @@ export const generateEmailTemplate =(resetPasswordUrl)=>{
 
 }
 
+
+// In ../utils/generateForgotPasswordEmailTemplate.js or a new file
+export const generateOtpEmailTemplate = (name,otp) => {
+  return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 8px; background-color: #000; color: #fff;">
+        <h2 style="color: #fff; text-align: center;">Verify Your Email</h2>
+        <p style="font-size: 16px; color: #ccc;">Dear ${name}</p>
+        <p style="font-size: 16px; color: #ccc;">Thank you for registering with OxiCart. Please use the following OTP to verify your email address:</p>
+        <div style="text-align: center; margin: 20px 0;">
+          <p style="font-size: 24px; font-weight: bold; color: #fff; letter-spacing: 5px;">${otp}</p>
+        </div>
+        <p style="font-size: 16px; color: #ccc;">This OTP will expire in 10 minutes. If you did not request this, please ignore this email.</p>
+        <footer style="margin-top: 20px; text-align: center; font-size: 14px; color: #666;">
+          <p>Thank you,<br>Ecommerce Team</p>
+          <p style="font-size: 12px; color: #444;">This is an automated message. Please do not reply to this email.</p>
+        </footer>
+      </div>
+  `;
+};
+

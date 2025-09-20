@@ -4,7 +4,7 @@ import database from "../database/db.js";
 import bcrypt from 'bcrypt';
 import { sendToken } from "../utils/jwtToken.js";
 import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.js";
-import { generateEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
+import { generateEmailTemplate, generateOtpEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
 import {v2 as cloudinary} from 'cloudinary'
@@ -15,45 +15,90 @@ const emailReg = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
 
 
-
 export const register = catchAsyncError(async (req, res, next) => {
-    //  get user details from frontend
     const { name, email, password } = req.body;
 
-    //  validation - not empty
+    // Validation
     if ([name, email, password].some((i) => !i || i?.trim() === "")) {
         return next(new ErrorHandler("Provide all the required field", 400));
     }
-
-    //  email format validation
     if (!emailReg.test(email)) {
         return next(new ErrorHandler("Provide a valid email", 400));
     }
-
-    // password format validation
     if (!passwordReg.test(password)) {
-        return next(new ErrorHandler("Password must be between 8 and 20 characters long and include uppercase, lowercase, number, and special character", 400));
+        return next(new ErrorHandler("Password must be strong (8-20 chars, upper, lower, number, special char)", 400));
     }
 
-    //  check if user already exists or not (email)
+    // Check existing user
     const existUser = await database.query(
-        `SELECT * FROM users WHERE email = $1`, [email]
+        `SELECT * FROM users WHERE email = $1`,
+        [email]
     );
-
     if (existUser.rows.length > 0) {
-        return next(new ErrorHandler("User already exists", 400))
+        return next(new ErrorHandler("User already exists", 400));
     }
 
-    //  hashing the password
+    // Hash password
     const hashPassword = await bcrypt.hash(password, 10);
 
-    //  create user object  -  create empty in db
+    // Generate OTP (6-digit random number)
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // Expiry (10 minutes from now)
+    const otpExpire = new Date(Date.now() + 10 * 60 * 1000);
+
+    // Insert user with OTP
     const user = await database.query(
-        'INSERT INTO users (name,email,password) VALUES ($1, $2, $3) RETURNING *',
-        [name, email, hashPassword]
-    )
-    sendToken(user.rows[0], 201, "User register successfully", res);
-})
+        `INSERT INTO users (name, email, password, otp_code, otp_expire) 
+         VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+        [name, email, hashPassword, otp, otpExpire]
+    );
+
+    // Send OTP via email
+    const message = generateOtpEmailTemplate(user.rows[0].name, otp);
+    await sendEmail({
+        email: user.rows[0].email,
+        subject: "Verify your email - OTP",
+        message,
+    });
+
+    res.status(201).json({
+        success: true,
+        message: "User registered successfully. OTP sent to email.",
+    });
+});
+
+
+export const verifyOtp = catchAsyncError(async (req, res, next) => {
+    const { email, otp } = req.body;
+
+    const user = await database.query(
+        `SELECT * FROM users WHERE email = $1`,
+        [email]
+    );
+
+    if (user.rows.length === 0) {
+        return next(new ErrorHandler("User not found", 404));
+    }
+
+    const currentUser = user.rows[0];
+
+    // Check OTP validity
+    if (currentUser.otp_code !== otp) {
+        return next(new ErrorHandler("Invalid OTP", 400));
+    }
+    if (currentUser.otp_expire < new Date()) {
+        return next(new ErrorHandler("OTP expired", 400));
+    }
+
+    // Mark verified and clear OTP
+    await database.query(
+        `UPDATE users SET is_verified = true, otp_code = NULL, otp_expire = NULL WHERE email = $1`,
+        [email]
+    );
+
+    sendToken(currentUser, 200, "Email verified successfully", res);
+});
 
 
 export const login = catchAsyncError(async (req, res, next) => {

@@ -12,6 +12,9 @@ export async function createUser() {
                 avatar JSONB DEFAULT NULL,
                 reset_password_token TEXT DEFAULT NULL,
                 reset_password_expire TIMESTAMP DEFAULT NULL,
+                otp_code VARCHAR(6) DEFAULT NULL,
+                otp_expire TIMESTAMP DEFAULT NULL,
+                is_verified BOOLEAN NOT NULL DEFAULT FALSE,
                 created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
             );
         `;
