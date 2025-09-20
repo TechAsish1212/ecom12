@@ -7,9 +7,7 @@ import { generateResetPasswordToken } from "../utils/generateResetPasswordToken.
 import { generateEmailTemplate, generateOtpEmailTemplate } from "../utils/generateForgotPasswordEmailTemplate.js";
 import { sendEmail } from "../utils/sendEmail.js";
 import crypto from "crypto";
-import {v2 as cloudinary} from 'cloudinary'
-import { url } from "inspector";
-import e from "express";
+import { v2 as cloudinary } from 'cloudinary';
 
 const emailReg = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const passwordReg = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,20}$/;
@@ -68,7 +66,6 @@ export const register = catchAsyncError(async (req, res, next) => {
     });
 });
 
-
 export const verifyOtp = catchAsyncError(async (req, res, next) => {
     const { email, otp } = req.body;
 
@@ -99,7 +96,6 @@ export const verifyOtp = catchAsyncError(async (req, res, next) => {
 
     sendToken(currentUser, 200, "Email verified successfully", res);
 });
-
 
 export const login = catchAsyncError(async (req, res, next) => {
     const { email, password } = req.body;
@@ -271,49 +267,49 @@ export const updatePassword = catchAsyncError(async (req, res, next) => {
     })
 })
 
-export const updateProfile = catchAsyncError(async(req,res,next)=>{
-    const {name,email}=req.body;
+export const updateProfile = catchAsyncError(async (req, res, next) => {
+    const { name, email } = req.body;
 
-    if(!name || !email){
-        return next(new ErrorHandler("Provides all fields",400));
+    if (!name || !email) {
+        return next(new ErrorHandler("Provides all fields", 400));
     }
 
-    if(name.trim().length===0 || email.trim().length===0){
-        return next(new ErrorHandler("Name and Email can not be empty",400));
+    if (name.trim().length === 0 || email.trim().length === 0) {
+        return next(new ErrorHandler("Name and Email can not be empty", 400));
     }
 
-    let avatarData={};
-    if(req.files && req.files.avatar){
-        const {avatar}=req.files;
-        if(req.user?.avatar?.public_id){
+    let avatarData = {};
+    if (req.files && req.files.avatar) {
+        const { avatar } = req.files;
+        if (req.user?.avatar?.public_id) {
             await cloudinary.uploader.destroy(req.user.avatar.public_id);
         }
 
-        const newProfileImage=await cloudinary.uploader.upload(avatar.tempFilePath,{
-            folder:"Ecom-Avatar",
-            width:150,
-            crop:"scale",   
+        const newProfileImage = await cloudinary.uploader.upload(avatar.tempFilePath, {
+            folder: "Ecom-Avatar",
+            width: 150,
+            crop: "scale",
         })
-        avatarData={
-            public_id:newProfileImage.public_id,
-            url:newProfileImage.secure_url
+        avatarData = {
+            public_id: newProfileImage.public_id,
+            url: newProfileImage.secure_url
         }
     }
 
     let user;
-    if(Object.keys(avatarData).length===0){
-        user=await database.query(
-            'UPDATE users SET name =$1 ,email =$2 WHERE id =$3 RETURNING *',[name,email,req.user.id]
+    if (Object.keys(avatarData).length === 0) {
+        user = await database.query(
+            'UPDATE users SET name =$1 ,email =$2 WHERE id =$3 RETURNING *', [name, email, req.user.id]
         )
     }
-    else{
-        user=await database.query(
-            'UPDATE users SET name =$1 ,email =$2,avatar=$3 WHERE id =$4 RETURNING *',[name,email,avatarData,req.user.id]
+    else {
+        user = await database.query(
+            'UPDATE users SET name =$1 ,email =$2,avatar=$3 WHERE id =$4 RETURNING *', [name, email, avatarData, req.user.id]
         )
     }
     res.status(200).json({
-        success:true,
-        message:"Profile updated successfully",
-        user:user.rows[0]
+        success: true,
+        message: "Profile updated successfully",
+        user: user.rows[0]
     })
 })

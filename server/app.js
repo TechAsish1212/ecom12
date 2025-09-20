@@ -6,6 +6,7 @@ import fileUpload from 'express-fileupload';
 import { createTables } from './utils/createTables.js';
 import { errorMiddleware } from './middlewares/errorMiddleware.js';
 import authRouter from "./routes/authRoutes.js";
+import productRouter from './routes/productRoutes.js';
 
 const app = express();
 
@@ -25,10 +26,11 @@ app.use(fileUpload({
     tempFileDir: '/uploads/',
     useTempFiles: true,
 }));
-app.use("/api/v1",authRouter)
+
+app.use("/api/v1",authRouter);
+app.use('/api/v1/product',productRouter);
+
 createTables();
-// .then(() => console.log("Database tables initialized."))
-// .catch((err) => console.log("Failed to initialize database tables: ", err))
 
 app.use(errorMiddleware)
 
